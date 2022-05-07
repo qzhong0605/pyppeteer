@@ -75,28 +75,38 @@ def download_zip(url: str) -> BytesIO:
     """Download data from url."""
     logger.info('Starting Chromium download.')
 
-    with urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where()) as http:
-        # Get data from url.
-        # set preload_content=False means using stream later.
-        r = http.request('GET', url, preload_content=False)
-        if r.status >= 400:
-            raise OSError(f'Chromium downloadable not found at {url}: ' f'Received {r.data.decode()}.\n')
-
-        # 10 * 1024
-        _data = BytesIO()
-        if NO_PROGRESS_BAR:
-            for chunk in r.stream(10240):
-                _data.write(chunk)
+    if current_platform() == 'linux':
+        environs = os.environ
+        if 'http_proxy' in environs:
+            http =  urllib3.ProxyManager(environs['http_proxy'])
         else:
-            try:
-                total_length = int(r.headers['content-length'])
-            except (KeyError, ValueError, AttributeError):
-                total_length = 0
-            process_bar = tqdm(total=total_length, unit_scale=True, unit='b')
-            for chunk in r.stream(10240):
-                _data.write(chunk)
-                process_bar.update(len(chunk))
-            process_bar.close()
+            http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+    else:
+        http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+
+    # Get data from url.
+    # set preload_content=False means using stream later.
+    r = http.request('GET', url, preload_content=False)
+    if r.status >= 400:
+        raise OSError(f'Chromium downloadable not found at {url}: ' f'Received {r.data.decode()}.\n')
+
+    # 10 * 1024
+    _data = BytesIO()
+    if NO_PROGRESS_BAR:
+        for chunk in r.stream(10240):
+            _data.write(chunk)
+    else:
+        try:
+            total_length = int(r.headers['content-length'])
+        except (KeyError, ValueError, AttributeError):
+            total_length = 0
+        process_bar = tqdm(total=total_length, unit_scale=True, unit='b')
+        for chunk in r.stream(10240):
+            _data.write(chunk)
+            process_bar.update(len(chunk))
+        process_bar.close()
+    # close
+    http.clear()
 
     return _data
 
